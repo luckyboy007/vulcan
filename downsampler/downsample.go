@@ -24,6 +24,7 @@ import (
 	"github.com/digitalocean/vulcan/model"
 
 	log "github.com/Sirupsen/logrus"
+	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -162,7 +163,7 @@ func (d *Downsampler) Run(numWorkers int) error {
 			defer wg.Done()
 
 			if err := d.work(); err != nil {
-				runErr = err
+				runErr = errors.Wrap(err, "encountered error, quitting")
 				d.Stop()
 			}
 		}()
@@ -269,7 +270,7 @@ func (d *Downsampler) shouldWrite(ts *model.TimeSeries) (bool, *model.Sample, er
 		"last_time":    t,
 		"resolution":   d.resolution,
 	}).Debug("comparing time")
-	if ts.Samples[0].TimestampMS-t > d.resolution {
+	if ts.Samples[0].TimestampMS-t > d.resolution || t == 0 {
 		ll.Debug("time diff is greater than resoution, should write")
 		// Return the latest collected sample.
 		// Do not update until we know there is a successful write.
