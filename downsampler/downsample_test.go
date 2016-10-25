@@ -13,3 +13,257 @@
 // limitations under the License.
 
 package downsampler
+
+import (
+	"errors"
+	"reflect"
+	"testing"
+	"time"
+
+	"github.com/digitalocean/vulcan/cassandra"
+	"github.com/digitalocean/vulcan/ingester"
+	"github.com/digitalocean/vulcan/model"
+)
+
+func TestShouldWrite(t *testing.T) {
+	var happyPathTests = []struct {
+		name          string
+		desc          string
+		input         *model.TimeSeries
+		outputBool    bool
+		outputSample  *model.Sample
+		resolution    time.Duration
+		currLastWrite map[string]int64
+		readSamples   []*model.Sample
+	}{
+		{
+			name: "a",
+			desc: "brand new timeseries, not written recently",
+			input: &model.TimeSeries{
+				Labels: map[string]string{"a": "b"},
+				Samples: []*model.Sample{
+					&model.Sample{
+						TimestampMS: int64(100000),
+						Value:       float64(1),
+					},
+					&model.Sample{
+						TimestampMS: int64(100015),
+						Value:       float64(2),
+					},
+				},
+			},
+			outputBool: true,
+			outputSample: &model.Sample{
+				TimestampMS: int64(100015),
+				Value:       float64(2),
+			},
+			resolution:    time.Duration(15 * time.Minute),
+			currLastWrite: map[string]int64{},
+			readSamples: []*model.Sample{
+				&model.Sample{TimestampMS: 0, Value: 0},
+			},
+		},
+		{
+			name: "b",
+			desc: "timeseries in hash state, not written recently",
+			input: &model.TimeSeries{
+				Labels: map[string]string{"a": "b"},
+				Samples: []*model.Sample{
+					&model.Sample{
+						TimestampMS: int64(100000),
+						Value:       float64(1),
+					},
+					&model.Sample{
+						TimestampMS: int64(100015),
+						Value:       float64(2),
+					},
+				},
+			},
+			outputBool: true,
+			outputSample: &model.Sample{
+				TimestampMS: int64(100015),
+				Value:       float64(2),
+			},
+			resolution: time.Duration(1 * time.Minute),
+			currLastWrite: map[string]int64{
+				`{"a":"b"}`: 1,
+			},
+			readSamples: []*model.Sample{},
+		},
+		{
+			name: "c ",
+			desc: "timeseries in hash state, written recently",
+			input: &model.TimeSeries{
+				Labels: map[string]string{"a": "b"},
+				Samples: []*model.Sample{
+					&model.Sample{
+						TimestampMS: int64(100000),
+						Value:       float64(1),
+					},
+					&model.Sample{
+						TimestampMS: int64(100015),
+						Value:       float64(2),
+					},
+				},
+			},
+			outputBool:   false,
+			outputSample: nil,
+			resolution:   time.Duration(1 * time.Minute),
+			currLastWrite: map[string]int64{
+				`{"a":"b"}`: 80000,
+			},
+			readSamples: []*model.Sample{},
+		},
+		{
+			name: "d",
+			desc: "brand new timeseries, written recently",
+			input: &model.TimeSeries{
+				Labels: map[string]string{"a": "b"},
+				Samples: []*model.Sample{
+					&model.Sample{
+						TimestampMS: int64(100000),
+						Value:       float64(1),
+					},
+					&model.Sample{
+						TimestampMS: int64(100015),
+						Value:       float64(2),
+					},
+				},
+			},
+			outputBool:    false,
+			outputSample:  nil,
+			resolution:    time.Duration(1 * time.Minute),
+			currLastWrite: map[string]int64{},
+			readSamples: []*model.Sample{
+				&model.Sample{TimestampMS: 80000, Value: 0},
+			},
+		},
+	}
+
+	for i, test := range happyPathTests {
+		t.Logf("happy path test %d: %q", i, test.desc)
+
+		tsw := &testShouldWrite{
+			input:         test.input,
+			outputBool:    test.outputBool,
+			outputSample:  test.outputSample,
+			resolution:    test.resolution,
+			currLastWrite: test.currLastWrite,
+			readSamples:   test.readSamples,
+		}
+
+		t.Run(test.name, tsw.validateShouldWriteHappy)
+	}
+
+	var negativeTests = []struct {
+		name          string
+		desc          string
+		input         *model.TimeSeries
+		outputBool    bool
+		outputSample  *model.Sample
+		resolution    time.Duration
+		currLastWrite map[string]int64
+		readSamples   []*model.Sample
+		readErr       error
+	}{
+		{
+			name: "a",
+			desc: "brand new timeseries, not written recently",
+			input: &model.TimeSeries{
+				Labels: map[string]string{"a": "b"},
+				Samples: []*model.Sample{
+					&model.Sample{
+						TimestampMS: int64(100000),
+						Value:       float64(1),
+					},
+					&model.Sample{
+						TimestampMS: int64(100015),
+						Value:       float64(2),
+					},
+				},
+			},
+			resolution:    time.Duration(15 * time.Minute),
+			currLastWrite: map[string]int64{},
+			readSamples: []*model.Sample{
+				&model.Sample{TimestampMS: 0, Value: 0},
+			},
+			readErr: errors.New("read error"),
+		},
+	}
+
+	for i, test := range negativeTests {
+		t.Logf("negative path tests %d: %q", i, test.desc)
+
+		tsw := &testShouldWrite{
+			input:         test.input,
+			outputBool:    test.outputBool,
+			outputSample:  test.outputSample,
+			resolution:    test.resolution,
+			currLastWrite: test.currLastWrite,
+			readSamples:   test.readSamples,
+			readErr:       test.readErr,
+		}
+
+		t.Run(test.name, tsw.validateShouldWriteNeg)
+	}
+}
+
+type testShouldWrite struct {
+	input         *model.TimeSeries
+	outputBool    bool
+	outputSample  *model.Sample
+	resolution    time.Duration
+	currLastWrite map[string]int64
+	readSamples   []*model.Sample
+	readErr       error
+}
+
+func (tsw *testShouldWrite) validateShouldWriteHappy(t *testing.T) {
+	ds := NewDownsampler(&Config{
+		Writer:     &ingester.MockWriter{},
+		Reader:     &cassandra.MockReader{Samples: tsw.readSamples},
+		Resolution: tsw.resolution,
+	})
+
+	ds.lastWrite = tsw.currLastWrite
+
+	gotBool, gotSample, err := ds.shouldWrite(tsw.input)
+	if err != nil {
+		t.Fatalf(
+			"shouldWrite(%v) => _, error: %v; expected nil errors",
+			tsw.input,
+			err,
+		)
+	}
+
+	if gotBool != tsw.outputBool || !reflect.DeepEqual(gotSample, tsw.outputSample) {
+		t.Errorf(
+			"shouldWrite(%v) => %v, %v; expected %v, %v",
+			tsw.input,
+			gotBool,
+			gotSample,
+			tsw.outputBool,
+			tsw.outputSample,
+		)
+	}
+}
+
+func (tsw *testShouldWrite) validateShouldWriteNeg(t *testing.T) {
+	ds := NewDownsampler(&Config{
+		Writer: &ingester.MockWriter{},
+		Reader: &cassandra.MockReader{
+			Samples: tsw.readSamples,
+			Err:     tsw.readErr,
+		},
+		Resolution: tsw.resolution,
+	})
+
+	ds.lastWrite = tsw.currLastWrite
+
+	if _, _, err := ds.shouldWrite(tsw.input); err == nil {
+		t.Fatalf(
+			"shouldWrite(%v) => _, nil error; expected an error",
+			tsw.input,
+		)
+	}
+}

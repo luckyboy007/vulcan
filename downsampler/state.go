@@ -80,8 +80,7 @@ func (d *Downsampler) getLastFrDisk(fqmn string) (updatedAtMS int64, err error) 
 	if err != nil {
 		return 0, err
 	}
-	// if record does not exist, we get the a 0 value timestampMS, which should
-	// always update.
+
 	return s.TimestampMS, nil
 }
 
