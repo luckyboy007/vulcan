@@ -97,10 +97,7 @@ func Downsampler() *cobra.Command {
 				TableName:  tablename,
 				Keyspace:   keyspace,
 			})
-			err = prometheus.Register(w)
-			if err != nil {
-				return err
-			}
+			reg.MustRegister(w)
 
 			// create reader
 			r := cassandra.NewReader(&cassandra.ReaderConfig{
