@@ -45,12 +45,12 @@ func (d *Downsampler) updateLastWrites(tsb model.TimeSeriesBatch) {
 }
 
 func (d *Downsampler) getLastWrite(fqmn string) (timestampMS int64, ok bool) {
-	d.mutex.Lock()
+	d.mutex.RLock()
 	t, ok := d.lastWrite[fqmn]
 	log.WithFields(log.Fields{
 		"last_writes": d.lastWrite,
 	}).Debug("getLastWrite called.")
-	d.mutex.Unlock()
+	d.mutex.RUnlock()
 
 	return t, ok
 }

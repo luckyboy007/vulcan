@@ -54,13 +54,14 @@ type Downsampler struct {
 	lastWrite map[string]int64
 
 	done  chan struct{}
-	mutex *sync.Mutex
+	mutex *sync.RWMutex
 	once  *sync.Once
 
 	stateHashLength  prometheus.Gauge
 	stateHashDeletes prometheus.Counter
 	writeCount       prometheus.Counter
 	readCount        *prometheus.CounterVec
+	memReadDuration  prometheus.Histogram
 }
 
 // Config represents the configurable attributes of a Downsampler instance.
@@ -84,7 +85,7 @@ func NewDownsampler(config *Config) *Downsampler {
 		lastWrite: map[string]int64{},
 
 		done:  make(chan struct{}),
-		mutex: new(sync.Mutex),
+		mutex: new(sync.RWMutex),
 		once:  new(sync.Once),
 
 		stateHashLength: prometheus.NewGauge(
@@ -120,6 +121,15 @@ func NewDownsampler(config *Config) *Downsampler {
 			},
 			[]string{"type"},
 		),
+		memReadDuration: prometheus.NewHistogram(
+			prometheus.HistogramOpts{
+				Namespace: namespace,
+				Subsystem: subsystem,
+				Name:      "mem_read_duration_seconds",
+				Help:      "Histogram of seconds elapsed to read a state node from memory",
+				Buckets:   prometheus.DefBuckets,
+			},
+		),
 	}
 
 	return d
@@ -132,6 +142,7 @@ func (d *Downsampler) Describe(ch chan<- *prometheus.Desc) {
 	d.writeCount.Describe(ch)
 	d.readCount.Describe(ch)
 	d.stateHashDeletes.Describe(ch)
+	d.memReadDuration.Describe(ch)
 }
 
 // Collect implements prometheus.Collector which makes the downsampler
@@ -141,6 +152,7 @@ func (d *Downsampler) Collect(ch chan<- prometheus.Metric) {
 	d.writeCount.Collect(ch)
 	d.readCount.Collect(ch)
 	d.stateHashDeletes.Collect(ch)
+	d.memReadDuration.Collect(ch)
 }
 
 // Run starts the downsampling process.  Exits with error on first encountered
@@ -245,7 +257,10 @@ func (d *Downsampler) shouldWrite(ts *model.TimeSeries) (bool, *model.Sample, er
 		"timeseries_samples": ts.Samples,
 		"timeseries_fqmn":    ts.ID(),
 	})
+	t0 := time.Now()
 	t, ok := d.getLastWrite(fqmn)
+	d.memReadDuration.Observe(time.Since(t0).Seconds())
+
 	if !ok {
 		ll.Debug("timeseries not in memory cache, checking from disk")
 		t, err = d.getLastFrDisk(fqmn)
