@@ -30,7 +30,7 @@ import (
 
 const (
 	namespace = "vulcan"
-	subsystem = "downsampler"
+	subsystem = "downsampler_int64pt"
 )
 
 // Downsampler reads from a kafka topics and records each consumed timeseries
@@ -51,10 +51,10 @@ type Downsampler struct {
 
 	cleanupF func()
 
-	lastWrite map[string]int64
+	lastWrite map[string]*int64
 
 	done  chan struct{}
-	mutex *sync.Mutex
+	mutex *sync.RWMutex
 	once  *sync.Once
 
 	stateHashLength  prometheus.Gauge
@@ -82,10 +82,10 @@ func NewDownsampler(config *Config) *Downsampler {
 		resolution: config.Resolution.Nanoseconds() / int64(time.Millisecond),
 		cleanupF:   config.CleanupFunc,
 
-		lastWrite: map[string]int64{},
+		lastWrite: map[string]*int64{},
 
 		done:  make(chan struct{}),
-		mutex: new(sync.Mutex),
+		mutex: new(sync.RWMutex),
 		once:  new(sync.Once),
 
 		stateHashLength: prometheus.NewGauge(
@@ -258,7 +258,7 @@ func (d *Downsampler) shouldWrite(ts *model.TimeSeries) (bool, *model.Sample, er
 		"timeseries_fqmn":    ts.ID(),
 	})
 	t0 := time.Now()
-	t, ok := d.getLastWrite(fqmn)
+	t, ok := d.getLastWriteValue(fqmn)
 	d.memReadDuration.Observe(time.Since(t0).Seconds())
 
 	if !ok {

@@ -33,7 +33,7 @@ func TestShouldWrite(t *testing.T) {
 		outputBool    bool
 		outputSample  *model.Sample
 		resolution    time.Duration
-		currLastWrite map[string]int64
+		currLastWrite map[string]*int64
 		readSamples   []*model.Sample
 	}{
 		{
@@ -58,7 +58,7 @@ func TestShouldWrite(t *testing.T) {
 				Value:       float64(2),
 			},
 			resolution:    time.Duration(15 * time.Minute),
-			currLastWrite: map[string]int64{},
+			currLastWrite: map[string]*int64{},
 			readSamples: []*model.Sample{
 				&model.Sample{TimestampMS: 0, Value: 0},
 			},
@@ -85,8 +85,8 @@ func TestShouldWrite(t *testing.T) {
 				Value:       float64(2),
 			},
 			resolution: time.Duration(1 * time.Minute),
-			currLastWrite: map[string]int64{
-				`{"a":"b"}`: 1,
+			currLastWrite: map[string]*int64{
+				`{"a":"b"}`: int64ToPt(1),
 			},
 			readSamples: []*model.Sample{},
 		},
@@ -109,8 +109,8 @@ func TestShouldWrite(t *testing.T) {
 			outputBool:   false,
 			outputSample: nil,
 			resolution:   time.Duration(1 * time.Minute),
-			currLastWrite: map[string]int64{
-				`{"a":"b"}`: 80000,
+			currLastWrite: map[string]*int64{
+				`{"a":"b"}`: int64ToPt(80000),
 			},
 			readSamples: []*model.Sample{},
 		},
@@ -133,7 +133,7 @@ func TestShouldWrite(t *testing.T) {
 			outputBool:    false,
 			outputSample:  nil,
 			resolution:    time.Duration(1 * time.Minute),
-			currLastWrite: map[string]int64{},
+			currLastWrite: map[string]*int64{},
 			readSamples: []*model.Sample{
 				&model.Sample{TimestampMS: 80000, Value: 0},
 			},
@@ -162,7 +162,7 @@ func TestShouldWrite(t *testing.T) {
 		outputBool    bool
 		outputSample  *model.Sample
 		resolution    time.Duration
-		currLastWrite map[string]int64
+		currLastWrite map[string]*int64
 		readSamples   []*model.Sample
 		readErr       error
 	}{
@@ -183,7 +183,7 @@ func TestShouldWrite(t *testing.T) {
 				},
 			},
 			resolution:    time.Duration(15 * time.Minute),
-			currLastWrite: map[string]int64{},
+			currLastWrite: map[string]*int64{},
 			readSamples: []*model.Sample{
 				&model.Sample{TimestampMS: 0, Value: 0},
 			},
@@ -213,7 +213,7 @@ type testShouldWrite struct {
 	outputBool    bool
 	outputSample  *model.Sample
 	resolution    time.Duration
-	currLastWrite map[string]int64
+	currLastWrite map[string]*int64
 	readSamples   []*model.Sample
 	readErr       error
 }

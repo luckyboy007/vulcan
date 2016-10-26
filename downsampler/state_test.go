@@ -22,21 +22,23 @@ import (
 
 func TestUpdateLastWrite(t *testing.T) {
 	var (
-		initState = map[string]int64{
-			`{"a":"b"}`: 1,
-			`{"c":"d"}`: 200,
+		initState = map[string]*int64{
+			`{"a":"b"}`: int64ToPt(1),
+			`{"c":"d"}`: int64ToPt(200),
 		}
 
 		ds = NewDownsampler(&Config{})
 
 		inputFqmn = `{"a":"b"}`
 		inputT    = int64(100)
+
+		//wg sync.WaitGroup
 	)
 
 	ds.lastWrite = initState
 
 	go func() {
-		got, ok := ds.getLastWrite(inputFqmn)
+		got, ok := ds.getLastWriteValue(inputFqmn)
 		if !ok {
 			t.Fatalf(
 				"expected to find fqmn of %q in lastWrites; found None",
@@ -58,9 +60,9 @@ func TestUpdateLastWrite(t *testing.T) {
 
 func TestUpdateLastWrites(t *testing.T) {
 	var (
-		initState = map[string]int64{
-			`{"a":"b"}`: 1,
-			`{"c":"d"}`: 200,
+		initState = map[string]*int64{
+			`{"a":"b"}`: int64ToPt(1),
+			`{"c":"d"}`: int64ToPt(200),
 		}
 
 		ds = NewDownsampler(&Config{})
@@ -111,7 +113,7 @@ func TestUpdateLastWrites(t *testing.T) {
 
 	go func() {
 		for _, e := range expected {
-			got, ok := ds.getLastWrite(e.getInput)
+			got, ok := ds.getLastWriteValue(e.getInput)
 			if !ok {
 				t.Errorf(
 					"expected to find fqmn of %q in lastWrites; found None",
@@ -134,15 +136,15 @@ func TestUpdateLastWrites(t *testing.T) {
 
 func TestCleanLastWrite(t *testing.T) {
 	var (
-		initState = map[string]int64{
-			`{"a":"b"}`: 100,
-			`{"c":"d"}`: 200,
-			`{"e":"f"}`: 300,
-			`{"g":"h"}`: 400,
-			`{"i":"j"}`: 500,
-			`{"k":"l"}`: 600,
-			`{"m":"n"}`: 700,
-			`{"q":"r"}`: 800,
+		initState = map[string]*int64{
+			`{"a":"b"}`: int64ToPt(100),
+			`{"c":"d"}`: int64ToPt(200),
+			`{"e":"f"}`: int64ToPt(300),
+			`{"g":"h"}`: int64ToPt(400),
+			`{"i":"j"}`: int64ToPt(500),
+			`{"k":"l"}`: int64ToPt(600),
+			`{"m":"n"}`: int64ToPt(700),
+			`{"q":"r"}`: int64ToPt(800),
 		}
 
 		ds = NewDownsampler(&Config{})
@@ -155,7 +157,7 @@ func TestCleanLastWrite(t *testing.T) {
 
 	go func() {
 		expectedFqmn := `{"a":"b"}`
-		got, ok := ds.getLastWrite(expectedFqmn)
+		got, ok := ds.getLastWriteValue(expectedFqmn)
 		if !ok {
 			t.Errorf(
 				"expected to find fqmn of %q in lastWrites; found None",

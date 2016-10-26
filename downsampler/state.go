@@ -15,6 +15,7 @@
 package downsampler
 
 import (
+	"sync/atomic"
 	"time"
 
 	"github.com/digitalocean/vulcan/model"
@@ -22,56 +23,86 @@ import (
 	log "github.com/Sirupsen/logrus"
 )
 
-func (d *Downsampler) updateLastWrite(fqmn string, t int64) {
+func (d *Downsampler) appendLastWrite(fqmn string, t int64) {
 	d.mutex.Lock()
-	d.lastWrite[fqmn] = t
+	d.lastWrite[fqmn] = int64ToPt(t)
+	d.mutex.Unlock()
+}
+
+func (d *Downsampler) updateLastWrite(fqmn string, t int64) {
+	a, ok := d.getLastWrite(fqmn)
+	if !ok {
+		d.appendLastWrite(fqmn, t)
+		return
+	}
+	atomic.SwapInt64(a, t)
 	d.stateHashLength.Set(float64(len(d.lastWrite)))
 	log.WithFields(log.Fields{
 		"last_writes": d.lastWrite,
 	}).Debug("updateLastWrite called.")
-	d.mutex.Unlock()
 }
 
 func (d *Downsampler) updateLastWrites(tsb model.TimeSeriesBatch) {
-	d.mutex.Lock()
 	for _, ts := range tsb {
-		d.lastWrite[ts.ID()] = ts.Samples[0].TimestampMS
+		a, ok := d.getLastWrite(ts.ID())
+		if !ok {
+			d.appendLastWrite(ts.ID(), ts.Samples[0].TimestampMS)
+			continue
+		}
+
+		atomic.SwapInt64(a, ts.Samples[0].TimestampMS)
 	}
 	d.stateHashLength.Set(float64(len(d.lastWrite)))
 	log.WithFields(log.Fields{
 		"last_writes": d.lastWrite,
 	}).Debug("updateLastWrites called.")
-	d.mutex.Unlock()
 }
 
-func (d *Downsampler) getLastWrite(fqmn string) (timestampMS int64, ok bool) {
-	d.mutex.Lock()
-	t, ok := d.lastWrite[fqmn]
+func (d *Downsampler) getLastWrite(fqmn string) (tsAddr *int64, ok bool) {
+	d.mutex.RLock()
+	a, ok := d.lastWrite[fqmn]
 	log.WithFields(log.Fields{
 		"last_writes": d.lastWrite,
 	}).Debug("getLastWrite called.")
-	d.mutex.Unlock()
+	d.mutex.RUnlock()
 
-	return t, ok
+	return a, ok
+}
+
+func (d *Downsampler) getLastWriteValue(fqmn string) (timestampMS int64, ok bool) {
+	a, ok := d.getLastWrite(fqmn)
+	if !ok {
+		return 0, ok
+	}
+
+	return atomic.LoadInt64(a), ok
 }
 
 func (d *Downsampler) cleanLastWrite(now int64, diff int64) {
-	d.mutex.Lock()
-	for fmqn, ts := range d.lastWrite {
-		if now-ts > diff {
+	var toDelete []string
+
+	d.mutex.RLock()
+	for fqmn, ts := range d.lastWrite {
+		if now-*ts > diff {
 			log.WithFields(log.Fields{
 				"now":  now,
 				"last": ts,
 				"diff": diff,
 			}).Debug("last write is greater than diff, deleting")
-			delete(d.lastWrite, fmqn)
-			d.stateHashDeletes.Inc()
+			toDelete = append(toDelete, fqmn)
 		}
 	}
-	// log.WithFields(log.Fields{
-	// 	"last_writes": d.lastWrite,
-	// }).Info("cleanLastWrite called.")
-	d.mutex.Unlock()
+	d.mutex.RUnlock()
+
+	if len(toDelete) > 0 {
+		d.mutex.Lock()
+		for _, fqmn := range toDelete {
+			delete(d.lastWrite, fqmn)
+		}
+		d.mutex.Unlock()
+	}
+
+	d.stateHashDeletes.Add(float64(len(toDelete)))
 }
 
 func (d *Downsampler) getLastFrDisk(fqmn string) (updatedAtMS int64, err error) {
@@ -108,4 +139,8 @@ func (d *Downsampler) cleanUp() {
 
 func timeToMS(t time.Time) int64 {
 	return t.UnixNano() / int64(time.Millisecond)
+}
+
+func int64ToPt(i int64) *int64 {
+	return &i
 }
