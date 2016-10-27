@@ -57,11 +57,13 @@ type Downsampler struct {
 	mutex *sync.RWMutex
 	once  *sync.Once
 
-	stateHashLength  prometheus.Gauge
-	stateHashDeletes prometheus.Counter
-	writeCount       prometheus.Counter
-	readCount        *prometheus.CounterVec
-	memReadDuration  prometheus.Histogram
+	stateHashLength         prometheus.Gauge
+	stateHashDeletes        prometheus.Counter
+	writeCount              prometheus.Counter
+	readCount               *prometheus.CounterVec
+	memReadDuration         prometheus.Histogram
+	batchProcessDuration    prometheus.Histogram
+	timeseriesCheckDuration prometheus.Histogram
 }
 
 // Config represents the configurable attributes of a Downsampler instance.
@@ -130,6 +132,24 @@ func NewDownsampler(config *Config) *Downsampler {
 				Buckets:   prometheus.DefBuckets,
 			},
 		),
+		timeseriesCheckDuration: prometheus.NewHistogram(
+			prometheus.HistogramOpts{
+				Namespace: namespace,
+				Subsystem: subsystem,
+				Name:      "timeseries_check_duration_seconds",
+				Help:      "Histogram of seconds elapsed to validation step of a consumed timeseries",
+				Buckets:   prometheus.DefBuckets,
+			},
+		),
+		batchProcessDuration: prometheus.NewHistogram(
+			prometheus.HistogramOpts{
+				Namespace: namespace,
+				Subsystem: subsystem,
+				Name:      "batch_process_duration_seconds",
+				Help:      "Histogram of seconds elapsed to process an entire timeseries batch",
+				Buckets:   prometheus.DefBuckets,
+			},
+		),
 	}
 
 	return d
@@ -143,6 +163,8 @@ func (d *Downsampler) Describe(ch chan<- *prometheus.Desc) {
 	d.readCount.Describe(ch)
 	d.stateHashDeletes.Describe(ch)
 	d.memReadDuration.Describe(ch)
+	d.batchProcessDuration.Describe(ch)
+	d.timeseriesCheckDuration.Describe(ch)
 }
 
 // Collect implements prometheus.Collector which makes the downsampler
@@ -153,6 +175,8 @@ func (d *Downsampler) Collect(ch chan<- prometheus.Metric) {
 	d.readCount.Collect(ch)
 	d.stateHashDeletes.Collect(ch)
 	d.memReadDuration.Collect(ch)
+	d.batchProcessDuration.Collect(ch)
+	d.timeseriesCheckDuration.Collect(ch)
 }
 
 // Run starts the downsampling process.  Exits with error on first encountered
@@ -209,7 +233,11 @@ func (d *Downsampler) work() error {
 }
 
 func (d *Downsampler) processTSBatch(tsb model.TimeSeriesBatch) error {
-	toWrite := make(model.TimeSeriesBatch, 0)
+	var (
+		toWrite = make(model.TimeSeriesBatch, 0)
+		t0      = time.Now()
+	)
+	defer func() { d.batchProcessDuration.Observe(time.Since(t0).Seconds()) }()
 
 	for _, ts := range tsb {
 		log.WithFields(log.Fields{
@@ -251,13 +279,15 @@ func (d *Downsampler) shouldWrite(ts *model.TimeSeries) (bool, *model.Sample, er
 		t    int64
 		err  error
 		fqmn = ts.ID()
+		t0   = time.Now()
 	)
+	defer func() { d.timeseriesCheckDuration.Observe(time.Since(t0).Seconds()) }()
 
 	ll := log.WithFields(log.Fields{
 		"timeseries_samples": ts.Samples,
 		"timeseries_fqmn":    ts.ID(),
 	})
-	t0 := time.Now()
+
 	t, ok := d.getLastWriteValue(fqmn)
 	d.memReadDuration.Observe(time.Since(t0).Seconds())
 

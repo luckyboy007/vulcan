@@ -35,10 +35,11 @@ func (d *Downsampler) updateLastWrite(fqmn string, t int64) {
 		d.appendLastWrite(fqmn, t)
 		return
 	}
+
 	atomic.SwapInt64(a, t)
 	d.stateHashLength.Set(float64(len(d.lastWrite)))
 	log.WithFields(log.Fields{
-		"last_writes": d.lastWrite,
+		"last_writes": len(d.lastWrite),
 	}).Debug("updateLastWrite called.")
 }
 
@@ -54,7 +55,7 @@ func (d *Downsampler) updateLastWrites(tsb model.TimeSeriesBatch) {
 	}
 	d.stateHashLength.Set(float64(len(d.lastWrite)))
 	log.WithFields(log.Fields{
-		"last_writes": d.lastWrite,
+		"last_writes": len(d.lastWrite),
 	}).Debug("updateLastWrites called.")
 }
 
@@ -62,7 +63,7 @@ func (d *Downsampler) getLastWrite(fqmn string) (tsAddr *int64, ok bool) {
 	d.mutex.RLock()
 	a, ok := d.lastWrite[fqmn]
 	log.WithFields(log.Fields{
-		"last_writes": d.lastWrite,
+		"last_writes": len(d.lastWrite),
 	}).Debug("getLastWrite called.")
 	d.mutex.RUnlock()
 
