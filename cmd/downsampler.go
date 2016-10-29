@@ -137,7 +137,7 @@ func Downsampler() *cobra.Command {
 			}).Info("downsampler started")
 
 			// Chose 30 workers for sake of testing.
-			return ds.Run(2)
+			return ds.Run(30)
 		},
 	}
 
