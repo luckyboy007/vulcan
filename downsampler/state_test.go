@@ -31,8 +31,6 @@ func TestUpdateLastWrite(t *testing.T) {
 
 		inputFqmn = `{"a":"b"}`
 		inputT    = int64(100)
-
-		//wg sync.WaitGroup
 	)
 
 	ds.lastWrite = initState
@@ -107,11 +105,14 @@ func TestUpdateLastWrites(t *testing.T) {
 				getOutput: 4000,
 			},
 		}
+
+		ch = make(chan struct{})
 	)
 
 	ds.lastWrite = initState
 
 	go func() {
+		ch <- struct{}{}
 		for _, e := range expected {
 			got, ok := ds.getLastWriteValue(e.getInput)
 			if !ok {
@@ -132,6 +133,7 @@ func TestUpdateLastWrites(t *testing.T) {
 	}()
 
 	ds.updateLastWrites(input)
+	<-ch
 }
 
 func TestCleanLastWrite(t *testing.T) {
@@ -151,12 +153,16 @@ func TestCleanLastWrite(t *testing.T) {
 
 		inputNow  = int64(900)
 		inputDiff = int64(100)
+
+		ch = make(chan struct{})
 	)
 
 	ds.lastWrite = initState
 
 	go func() {
-		expectedFqmn := `{"a":"b"}`
+		ch <- struct{}{}
+
+		expectedFqmn := `{"q":"r"}`
 		got, ok := ds.getLastWriteValue(expectedFqmn)
 		if !ok {
 			t.Errorf(
@@ -165,7 +171,7 @@ func TestCleanLastWrite(t *testing.T) {
 			)
 		}
 
-		if got != int64(100) {
+		if got != int64(800) {
 			t.Errorf(
 				"expected fmqn to have value of 100, but got %d",
 				got,
@@ -182,4 +188,5 @@ func TestCleanLastWrite(t *testing.T) {
 	}()
 
 	ds.cleanLastWrite(inputNow, inputDiff)
+	<-ch
 }

@@ -19,8 +19,6 @@ import (
 	"time"
 
 	"github.com/digitalocean/vulcan/model"
-
-	log "github.com/Sirupsen/logrus"
 )
 
 func (d *Downsampler) appendLastWrite(fqmn string, t int64) {
@@ -38,9 +36,6 @@ func (d *Downsampler) updateLastWrite(fqmn string, t int64) {
 
 	atomic.SwapInt64(a, t)
 	d.stateHashLength.Set(float64(len(d.lastWrite)))
-	log.WithFields(log.Fields{
-		"last_writes": len(d.lastWrite),
-	}).Debug("updateLastWrite called.")
 }
 
 func (d *Downsampler) updateLastWrites(tsb model.TimeSeriesBatch) {
@@ -54,17 +49,11 @@ func (d *Downsampler) updateLastWrites(tsb model.TimeSeriesBatch) {
 		atomic.SwapInt64(a, ts.Samples[0].TimestampMS)
 	}
 	d.stateHashLength.Set(float64(len(d.lastWrite)))
-	log.WithFields(log.Fields{
-		"last_writes": len(d.lastWrite),
-	}).Debug("updateLastWrites called.")
 }
 
 func (d *Downsampler) getLastWrite(fqmn string) (tsAddr *int64, ok bool) {
 	d.mutex.RLock()
 	a, ok := d.lastWrite[fqmn]
-	log.WithFields(log.Fields{
-		"last_writes": len(d.lastWrite),
-	}).Debug("getLastWrite called.")
 	d.mutex.RUnlock()
 
 	return a, ok
@@ -85,11 +74,6 @@ func (d *Downsampler) cleanLastWrite(now int64, diff int64) {
 	d.mutex.RLock()
 	for fqmn, ts := range d.lastWrite {
 		if now-*ts > diff {
-			log.WithFields(log.Fields{
-				"now":  now,
-				"last": ts,
-				"diff": diff,
-			}).Debug("last write is greater than diff, deleting")
 			toDelete = append(toDelete, fqmn)
 		}
 	}
@@ -128,7 +112,6 @@ func (d *Downsampler) cleanUp() {
 	for {
 		select {
 		case <-t.C:
-			log.Debug("cleanup interval here.")
 			d.cleanLastWrite(timeToMS(time.Now()), diffi)
 
 		case <-d.done:
