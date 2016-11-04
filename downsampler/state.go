@@ -40,17 +40,16 @@ func (d *Downsampler) updateLastWrite(fqmn string, t int64) {
 
 func (d *Downsampler) updateLastWrites(tsb model.TimeSeriesBatch) {
 	for _, ts := range tsb {
-		a, ok := d.getLastWrite(ts.ID())
-		if !ok {
-			d.appendLastWrite(ts.ID(), ts.Samples[0].TimestampMS)
-			continue
-		}
-
-		atomic.SwapInt64(a, ts.Samples[0].TimestampMS)
+		d.updateLastWrite(ts.ID(), ts.Samples[0].TimestampMS)
 	}
-	d.stateHashLength.Set(float64(len(d.lastWrite)))
 }
 
+// getLastWrite retrives an address for atomic operations. Because the read lock
+// is released before the address is returned to the caller, there is a potential
+// race condition where the caller is doing updating the returned int64 pointer
+// just before a cleanUp sweep occurs and removes occurs, in which case there
+// will be a extra read to the data storage to retrieve last timestamp.  This
+// scenario should be unlikely.
 func (d *Downsampler) getLastWrite(fqmn string) (tsAddr *int64, ok bool) {
 	d.mutex.RLock()
 	a, ok := d.lastWrite[fqmn]
@@ -71,6 +70,10 @@ func (d *Downsampler) getLastWriteValue(fqmn string) (timestampMS int64, ok bool
 func (d *Downsampler) cleanLastWrite(now int64, diff int64) {
 	var toDelete []string
 
+	// Use a write lock here to reduce potential of race condition where an atomic
+	// update occurs just before the clean up sweep begins.  However, write locking
+	// here also introduces a longer duration of read locks from goroutines trying
+	// to read lastWrite.
 	d.mutex.RLock()
 	for fqmn, ts := range d.lastWrite {
 		if now-*ts > diff {
@@ -79,19 +82,20 @@ func (d *Downsampler) cleanLastWrite(now int64, diff int64) {
 	}
 	d.mutex.RUnlock()
 
+	d.mutex.Lock()
 	if len(toDelete) > 0 {
-		d.mutex.Lock()
 		for _, fqmn := range toDelete {
 			delete(d.lastWrite, fqmn)
 		}
-		d.mutex.Unlock()
 	}
+	d.mutex.Unlock()
 
 	d.stateHashDeletes.Add(float64(len(toDelete)))
 }
 
 func (d *Downsampler) getLastFrDisk(fqmn string) (updatedAtMS int64, err error) {
 	d.readCount.WithLabelValues("disk").Inc()
+
 	s, err := d.reader.GetLastSample(fqmn)
 	if err != nil {
 		return 0, err

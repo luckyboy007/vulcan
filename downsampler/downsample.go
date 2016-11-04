@@ -30,7 +30,7 @@ import (
 
 const (
 	namespace = "vulcan"
-	subsystem = "downsampler_int64pt"
+	subsystem = "downsampler"
 )
 
 // Downsampler reads from a kafka topics and records each consumed timeseries
@@ -59,7 +59,7 @@ type Downsampler struct {
 
 	stateHashLength         prometheus.Gauge
 	stateHashDeletes        prometheus.Counter
-	writeCount              *prometheus.CounterVec
+	writeCount              prometheus.Counter
 	readCount               *prometheus.CounterVec
 	memReadDuration         prometheus.Histogram
 	batchProcessDuration    prometheus.Histogram
@@ -98,14 +98,13 @@ func NewDownsampler(config *Config) *Downsampler {
 				Help:      "Length of state hash map",
 			},
 		),
-		writeCount: prometheus.NewCounterVec(
+		writeCount: prometheus.NewCounter(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
 				Name:      "write_count_total",
 				Help:      "Count of writes made to sample storage",
 			},
-			[]string{"region"},
 		),
 		stateHashDeletes: prometheus.NewCounter(
 			prometheus.CounterOpts{
@@ -243,7 +242,6 @@ func (d *Downsampler) processTSBatch(tsb model.TimeSeriesBatch) error {
 			return err
 		}
 		if should {
-			d.writeCount.WithLabelValues(ts.Labels["region"]).Inc()
 			toWrite = append(toWrite, &model.TimeSeries{
 				Labels:  ts.Labels,
 				Samples: []*model.Sample{s},
@@ -296,7 +294,7 @@ func (d *Downsampler) shouldWrite(ts *model.TimeSeries) (bool, *model.Sample, er
 }
 
 func (d *Downsampler) write(tsb model.TimeSeriesBatch) error {
-	//d.writeCount.Add(float64(len(tsb)))
+	d.writeCount.Add(float64(len(tsb)))
 	if err := d.writer.Write(tsb); err != nil {
 		return err
 	}

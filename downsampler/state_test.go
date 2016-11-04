@@ -153,15 +153,11 @@ func TestCleanLastWrite(t *testing.T) {
 
 		inputNow  = int64(900)
 		inputDiff = int64(100)
-
-		ch = make(chan struct{})
 	)
 
 	ds.lastWrite = initState
 
 	go func() {
-		ch <- struct{}{}
-
 		expectedFqmn := `{"q":"r"}`
 		got, ok := ds.getLastWriteValue(expectedFqmn)
 		if !ok {
@@ -179,14 +175,16 @@ func TestCleanLastWrite(t *testing.T) {
 		}
 
 		// ok to check len of state now that getLastWrite was called above
+		ds.mutex.RLock()
 		if len(ds.lastWrite) != 1 {
 			t.Errorf(
 				"expected lastWrite to have length of 1, but got %d",
 				len(ds.lastWrite),
 			)
 		}
+		ds.mutex.RUnlock()
+
 	}()
 
 	ds.cleanLastWrite(inputNow, inputDiff)
-	<-ch
 }

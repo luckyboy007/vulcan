@@ -143,16 +143,35 @@ func TestShouldWrite(t *testing.T) {
 	for i, test := range happyPathTests {
 		t.Logf("happy path test %d: %q", i, test.desc)
 
-		tsw := &testShouldWrite{
-			input:         test.input,
-			outputBool:    test.outputBool,
-			outputSample:  test.outputSample,
-			resolution:    test.resolution,
-			currLastWrite: test.currLastWrite,
-			readSamples:   test.readSamples,
-		}
+		t.Run(test.name, func(t *testing.T) {
+			ds := NewDownsampler(&Config{
+				Writer:     &ingester.MockWriter{},
+				Reader:     &cassandra.MockReader{Samples: test.readSamples},
+				Resolution: test.resolution,
+			})
 
-		t.Run(test.name, tsw.validateShouldWriteHappy)
+			ds.lastWrite = test.currLastWrite
+
+			gotBool, gotSample, err := ds.shouldWrite(test.input)
+			if err != nil {
+				t.Fatalf(
+					"shouldWrite(%v) => _, error: %v; expected nil errors",
+					test.input,
+					err,
+				)
+			}
+
+			if gotBool != test.outputBool || !reflect.DeepEqual(gotSample, test.outputSample) {
+				t.Errorf(
+					"shouldWrite(%v) => %v, %v; expected %v, %v",
+					test.input,
+					gotBool,
+					gotSample,
+					test.outputBool,
+					test.outputSample,
+				)
+			}
+		})
 	}
 
 	var negativeTests = []struct {
@@ -194,76 +213,24 @@ func TestShouldWrite(t *testing.T) {
 	for i, test := range negativeTests {
 		t.Logf("negative path tests %d: %q", i, test.desc)
 
-		tsw := &testShouldWrite{
-			input:         test.input,
-			outputBool:    test.outputBool,
-			outputSample:  test.outputSample,
-			resolution:    test.resolution,
-			currLastWrite: test.currLastWrite,
-			readSamples:   test.readSamples,
-			readErr:       test.readErr,
-		}
+		t.Run(test.name, func(t *testing.T) {
+			ds := NewDownsampler(&Config{
+				Writer: &ingester.MockWriter{},
+				Reader: &cassandra.MockReader{
+					Samples: test.readSamples,
+					Err:     test.readErr,
+				},
+				Resolution: test.resolution,
+			})
 
-		t.Run(test.name, tsw.validateShouldWriteNeg)
-	}
-}
+			ds.lastWrite = test.currLastWrite
 
-type testShouldWrite struct {
-	input         *model.TimeSeries
-	outputBool    bool
-	outputSample  *model.Sample
-	resolution    time.Duration
-	currLastWrite map[string]*int64
-	readSamples   []*model.Sample
-	readErr       error
-}
-
-func (tsw *testShouldWrite) validateShouldWriteHappy(t *testing.T) {
-	ds := NewDownsampler(&Config{
-		Writer:     &ingester.MockWriter{},
-		Reader:     &cassandra.MockReader{Samples: tsw.readSamples},
-		Resolution: tsw.resolution,
-	})
-
-	ds.lastWrite = tsw.currLastWrite
-
-	gotBool, gotSample, err := ds.shouldWrite(tsw.input)
-	if err != nil {
-		t.Fatalf(
-			"shouldWrite(%v) => _, error: %v; expected nil errors",
-			tsw.input,
-			err,
-		)
-	}
-
-	if gotBool != tsw.outputBool || !reflect.DeepEqual(gotSample, tsw.outputSample) {
-		t.Errorf(
-			"shouldWrite(%v) => %v, %v; expected %v, %v",
-			tsw.input,
-			gotBool,
-			gotSample,
-			tsw.outputBool,
-			tsw.outputSample,
-		)
-	}
-}
-
-func (tsw *testShouldWrite) validateShouldWriteNeg(t *testing.T) {
-	ds := NewDownsampler(&Config{
-		Writer: &ingester.MockWriter{},
-		Reader: &cassandra.MockReader{
-			Samples: tsw.readSamples,
-			Err:     tsw.readErr,
-		},
-		Resolution: tsw.resolution,
-	})
-
-	ds.lastWrite = tsw.currLastWrite
-
-	if _, _, err := ds.shouldWrite(tsw.input); err == nil {
-		t.Fatalf(
-			"shouldWrite(%v) => _, nil error; expected an error",
-			tsw.input,
-		)
+			if _, _, err := ds.shouldWrite(test.input); err == nil {
+				t.Fatalf(
+					"shouldWrite(%v) => _, nil error; expected an error",
+					test.input,
+				)
+			}
+		})
 	}
 }
