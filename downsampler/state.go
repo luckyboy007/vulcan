@@ -28,14 +28,21 @@ func (d *Downsampler) appendLastWrite(fqmn string, t int64) {
 }
 
 func (d *Downsampler) updateLastWrite(fqmn string, t int64) {
-	a, ok := d.getLastWrite(fqmn)
+	defer func() { d.stateHashLength.Set(float64(d.lenLastWrite())) }()
+
+	d.mutex.Lock()
+
+	a, ok := d.lastWrite[fqmn]
 	if !ok {
+		// Unlock read mutext before appending to avoid deadlock with appendLastWrite.
+		d.mutex.Unlock()
 		d.appendLastWrite(fqmn, t)
+
 		return
 	}
-
 	atomic.SwapInt64(a, t)
-	d.stateHashLength.Set(float64(len(d.lastWrite)))
+
+	d.mutex.Unlock()
 }
 
 func (d *Downsampler) updateLastWrites(tsb model.TimeSeriesBatch) {
@@ -59,7 +66,10 @@ func (d *Downsampler) getLastWrite(fqmn string) (tsAddr *int64, ok bool) {
 }
 
 func (d *Downsampler) getLastWriteValue(fqmn string) (timestampMS int64, ok bool) {
-	a, ok := d.getLastWrite(fqmn)
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+
+	a, ok := d.lastWrite[fqmn]
 	if !ok {
 		return 0, ok
 	}
@@ -68,27 +78,27 @@ func (d *Downsampler) getLastWriteValue(fqmn string) (timestampMS int64, ok bool
 }
 
 func (d *Downsampler) cleanLastWrite(now int64, diff int64) {
-	var toDelete []string
+	var toDelete = map[string]int64{}
 
-	// Use a write lock here to reduce potential of race condition where an atomic
-	// update occurs just before the clean up sweep begins.  However, write locking
-	// here also introduces a longer duration of read locks from goroutines trying
-	// to read lastWrite.
 	d.mutex.RLock()
 	for fqmn, ts := range d.lastWrite {
 		if now-*ts > diff {
-			toDelete = append(toDelete, fqmn)
+			toDelete[fqmn] = *ts
 		}
 	}
 	d.mutex.RUnlock()
 
-	d.mutex.Lock()
 	if len(toDelete) > 0 {
-		for _, fqmn := range toDelete {
-			delete(d.lastWrite, fqmn)
+		d.mutex.Lock()
+		for fqmn, ts := range toDelete {
+			// Only delete if the timestamp of the fqmn is still the same one that
+			// we measured against when we marked the item for deletion.
+			if ts == *d.lastWrite[fqmn] {
+				delete(d.lastWrite, fqmn)
+			}
 		}
+		d.mutex.Unlock()
 	}
-	d.mutex.Unlock()
 
 	d.stateHashDeletes.Add(float64(len(toDelete)))
 }
@@ -123,6 +133,13 @@ func (d *Downsampler) cleanUp() {
 			return
 		}
 	}
+}
+
+func (d *Downsampler) lenLastWrite() int {
+	d.mutex.RLock()
+	defer d.mutex.RUnlock()
+
+	return len(d.lastWrite)
 }
 
 func timeToMS(t time.Time) int64 {

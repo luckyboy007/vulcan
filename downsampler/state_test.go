@@ -175,14 +175,13 @@ func TestCleanLastWrite(t *testing.T) {
 		}
 
 		// ok to check len of state now that getLastWrite was called above
-		ds.mutex.RLock()
-		if len(ds.lastWrite) != 1 {
+		gotLen := ds.lenLastWrite()
+		if gotLen != 1 {
 			t.Errorf(
 				"expected lastWrite to have length of 1, but got %d",
-				len(ds.lastWrite),
+				gotLen,
 			)
 		}
-		ds.mutex.RUnlock()
 
 	}()
 

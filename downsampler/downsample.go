@@ -294,11 +294,11 @@ func (d *Downsampler) shouldWrite(ts *model.TimeSeries) (bool, *model.Sample, er
 }
 
 func (d *Downsampler) write(tsb model.TimeSeriesBatch) error {
-	d.writeCount.Add(float64(len(tsb)))
 	if err := d.writer.Write(tsb); err != nil {
 		return err
 	}
 	// Update state now that we know writes are successful.
+	d.writeCount.Add(float64(len(tsb)))
 	d.updateLastWrites(tsb)
 
 	return nil
