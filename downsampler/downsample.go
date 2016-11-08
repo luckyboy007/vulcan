@@ -59,7 +59,7 @@ type Downsampler struct {
 
 	stateHashLength         prometheus.Gauge
 	stateHashDeletes        prometheus.Counter
-	writeCount              *prometheus.CounterVec
+	writeCount              prometheus.Counter
 	readCount               *prometheus.CounterVec
 	memReadDuration         prometheus.Histogram
 	batchProcessDuration    prometheus.Histogram
@@ -98,14 +98,13 @@ func NewDownsampler(config *Config) *Downsampler {
 				Help:      "Length of state hash map",
 			},
 		),
-		writeCount: prometheus.NewCounterVec(
+		writeCount: prometheus.NewCounter(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
 				Name:      "write_count_total",
 				Help:      "Count of writes made to sample storage",
 			},
-			[]string{"region"},
 		),
 		stateHashDeletes: prometheus.NewCounter(
 			prometheus.CounterOpts{
@@ -217,9 +216,6 @@ func (d *Downsampler) work() error {
 			return nil
 
 		case m := <-d.consumer.Messages():
-			log.WithFields(log.Fields{
-				"tsb": m.TimeSeriesBatch,
-			}).Debug("consumer message received")
 			if err := d.processTSBatch(m.TimeSeriesBatch); err != nil {
 				log.WithFields(log.Fields{
 					"timeseries_batch": m.TimeSeriesBatch,
@@ -241,21 +237,11 @@ func (d *Downsampler) processTSBatch(tsb model.TimeSeriesBatch) error {
 	defer func() { d.batchProcessDuration.Observe(time.Since(t0).Seconds()) }()
 
 	for _, ts := range tsb {
-		log.WithFields(log.Fields{
-			"timeseries_samples": ts.Samples,
-			"timeseries_fqmn":    ts.ID(),
-		}).Debug("checking if timeseries should be written")
 		should, s, err := d.shouldWrite(ts)
 		if err != nil {
 			return err
 		}
 		if should {
-			log.WithFields(log.Fields{
-				"timeseries_samples": ts.Samples,
-				"timeseries_fqmn":    ts.ID(),
-			}).Debug("timeseries should be written.  Appending to batch write")
-
-			d.writeCount.WithLabelValues(ts.Labels["region"]).Inc()
 			toWrite = append(toWrite, &model.TimeSeries{
 				Labels:  ts.Labels,
 				Samples: []*model.Sample{s},
@@ -264,15 +250,9 @@ func (d *Downsampler) processTSBatch(tsb model.TimeSeriesBatch) error {
 	}
 
 	if len(toWrite) < 1 {
-		log.WithFields(log.Fields{
-			"to_write": toWrite,
-		}).Debug("nothing to write")
 		return nil
 	}
 
-	log.WithFields(log.Fields{
-		"to_write": toWrite,
-	}).Debug("writing batch to storage")
 	return d.write(toWrite)
 }
 
@@ -286,23 +266,14 @@ func (d *Downsampler) shouldWrite(ts *model.TimeSeries) (bool, *model.Sample, er
 	)
 	defer func() { d.timeseriesCheckDuration.Observe(time.Since(t0).Seconds()) }()
 
-	ll := log.WithFields(log.Fields{
-		"timeseries_samples": ts.Samples,
-		"timeseries_fqmn":    ts.ID(),
-	})
-
 	t, ok := d.getLastWrite(fqmn)
 	d.memReadDuration.Observe(time.Since(t0).Seconds())
 
 	if !ok {
-		ll.Debug("timeseries not in memory cache, checking from disk")
 		t, err = d.getLastFrDisk(fqmn)
 		if err != nil {
 			return false, nil, err
 		}
-		ll.WithFields(log.Fields{
-			"sample_ts_ms": t,
-		}).Debug("got sample from disk.  Updating memory cache")
 
 		// update state
 		d.updateLastWrite(fqmn, t)
@@ -313,29 +284,20 @@ func (d *Downsampler) shouldWrite(ts *model.TimeSeries) (bool, *model.Sample, er
 	// sample and write latest collected sample.
 	model.SampleSorter(model.SortSampleByTS).Sort(ts.Samples)
 
-	ll.WithFields(log.Fields{
-		"current_time": ts.Samples[0].TimestampMS,
-		"last_time":    t,
-		"resolution":   d.resolution,
-	}).Debug("comparing time")
 	if ts.Samples[0].TimestampMS-t > d.resolution || t == 0 {
-		ll.Debug("time diff is greater than resoution, should write")
 		// Return the latest collected sample.
 		// Do not update until we know there is a successful write.
 		return true, ts.Samples[len(ts.Samples)-1], nil
 	}
-	ll.Debug("time diff is not greater than resoution, should NOT write")
+
 	return false, nil, nil
 }
 
 func (d *Downsampler) write(tsb model.TimeSeriesBatch) error {
-	//d.writeCount.Add(float64(len(tsb)))
+	d.writeCount.Add(float64(len(tsb)))
 	if err := d.writer.Write(tsb); err != nil {
 		return err
 	}
-	log.WithFields(log.Fields{
-		"timeseries_batch": tsb,
-	}).Debug("write successful.  updating memory cache")
 	// Update state now that we know writes are successful.
 	d.updateLastWrites(tsb)
 

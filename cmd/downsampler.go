@@ -64,6 +64,7 @@ func Downsampler() *cobra.Command {
 			//reg.MustRegister(s)
 			log.WithFields(log.Fields{
 				"kafka_client_id": viper.GetString(flagKafkaClientID),
+				"kafka_group_id":  viper.GetString(flagKafkaGroupID),
 				"kafka_topic":     viper.GetString(flagKafkaTopic),
 				"kafka_addresses": viper.GetString(flagKafkaAddrs),
 			}).Info("registered as kafka consumer")
@@ -136,8 +137,7 @@ func Downsampler() *cobra.Command {
 				"downsampler_resolution": viper.GetString(flagDownsamplerResolution),
 			}).Info("downsampler started")
 
-			// Chose 30 workers for sake of testing.
-			return ds.Run(30)
+			return ds.Run(viper.GetInt(flagNumWorkers))
 		},
 	}
 

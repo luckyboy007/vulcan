@@ -31,29 +31,34 @@ func TestUpdateLastWrite(t *testing.T) {
 
 		inputFqmn = `{"a":"b"}`
 		inputT    = int64(100)
+
+		ch = make(chan struct{}, 1)
 	)
 
 	ds.lastWrite = initState
 
 	go func() {
-		got, ok := ds.getLastWrite(inputFqmn)
-		if !ok {
-			t.Fatalf(
-				"expected to find fqmn of %q in lastWrites; found None",
-				inputFqmn,
-			)
-		}
+		// Send on unbuffered channel ensures cleanup starts before getLastWrite is called.
+		ch <- struct{}{}
 
-		if got != inputT {
-			t.Errorf(
-				"expected fmqn to have value of %d, but got %d",
-				inputT,
-				got,
-			)
-		}
+		ds.updateLastWrite(inputFqmn, inputT)
 	}()
+	<-ch
+	got, ok := ds.getLastWrite(inputFqmn)
+	if !ok {
+		t.Fatalf(
+			"expected to find fqmn of %q in lastWrites; found None",
+			inputFqmn,
+		)
+	}
 
-	ds.updateLastWrite(inputFqmn, inputT)
+	if got != inputT {
+		t.Errorf(
+			"expected fmqn to have value of %d, but got %d",
+			inputT,
+			got,
+		)
+	}
 }
 
 func TestUpdateLastWrites(t *testing.T) {
@@ -105,31 +110,37 @@ func TestUpdateLastWrites(t *testing.T) {
 				getOutput: 4000,
 			},
 		}
+
+		ch = make(chan struct{}, 1)
 	)
 
 	ds.lastWrite = initState
 
 	go func() {
-		for _, e := range expected {
-			got, ok := ds.getLastWrite(e.getInput)
-			if !ok {
-				t.Errorf(
-					"expected to find fqmn of %q in lastWrites; found None",
-					e.getInput,
-				)
-			}
+		// Send on unbuffered channel ensures cleanup starts before getLastWrite is called.
+		ch <- struct{}{}
 
-			if got != int64(e.getOutput) {
-				t.Errorf(
-					"expected fmqn to have value of %d, but got %d",
-					e.getOutput,
-					got,
-				)
-			}
-		}
+		ds.updateLastWrites(input)
 	}()
 
-	ds.updateLastWrites(input)
+	<-ch
+	for _, e := range expected {
+		got, ok := ds.getLastWrite(e.getInput)
+		if !ok {
+			t.Errorf(
+				"expected to find fqmn of %q in lastWrites; found None",
+				e.getInput,
+			)
+		}
+
+		if got != int64(e.getOutput) {
+			t.Errorf(
+				"expected fmqn to have value of %d, but got %d",
+				e.getOutput,
+				got,
+			)
+		}
+	}
 }
 
 func TestCleanLastWrite(t *testing.T) {
@@ -149,35 +160,41 @@ func TestCleanLastWrite(t *testing.T) {
 
 		inputNow  = int64(900)
 		inputDiff = int64(100)
+
+		ch = make(chan struct{}, 1)
 	)
 
 	ds.lastWrite = initState
 
 	go func() {
-		expectedFqmn := `{"a":"b"}`
-		got, ok := ds.getLastWrite(expectedFqmn)
-		if !ok {
-			t.Errorf(
-				"expected to find fqmn of %q in lastWrites; found None",
-				expectedFqmn,
-			)
-		}
-
-		if got != int64(100) {
-			t.Errorf(
-				"expected fmqn to have value of 100, but got %d",
-				got,
-			)
-		}
-
-		// ok to check len of state now that getLastWrite was called above
-		if len(ds.lastWrite) != 1 {
-			t.Errorf(
-				"expected lastWrite to have length of 1, but got %d",
-				len(ds.lastWrite),
-			)
-		}
+		// Send on unbuffered channel ensures cleanup starts before getLastWrite is called.
+		ch <- struct{}{}
+		ds.cleanLastWrite(inputNow, inputDiff)
 	}()
 
-	ds.cleanLastWrite(inputNow, inputDiff)
+	<-ch
+	expectedFqmn := `{"q":"r"}`
+	got, ok := ds.getLastWrite(expectedFqmn)
+	if !ok {
+		t.Errorf(
+			"expected to find fqmn of %q in lastWrites; found None",
+			expectedFqmn,
+		)
+	}
+
+	if got != int64(800) {
+		t.Errorf(
+			"expected fmqn to have value of 100, but got %d",
+			got,
+		)
+	}
+
+	ds.mutex.RLock()
+	if len(ds.lastWrite) != 1 {
+		t.Errorf(
+			"expected lastWrite to have length of 1, but got %d",
+			len(ds.lastWrite),
+		)
+	}
+	ds.mutex.RUnlock()
 }
