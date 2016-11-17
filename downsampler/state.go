@@ -104,7 +104,7 @@ func (d *Downsampler) getLastFrDisk(fqmn string) (updatedAtMS int64, err error) 
 // records older than 1.5X the resolution duration.
 func (d *Downsampler) cleanUp() {
 	var (
-		diffd = time.Duration(d.resolution*3/2) * time.Millisecond
+		diffd = time.Duration(float64(d.resolution)*d.cleanupRate) * time.Millisecond
 		t     = time.NewTicker(diffd)
 		diffi = diffd.Nanoseconds() / int64(time.Millisecond)
 	)

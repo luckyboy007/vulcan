@@ -51,7 +51,8 @@ type Downsampler struct {
 	// conversions.
 	resolution int64
 
-	cleanupF func()
+	cleanupRate float64
+	cleanupF    func()
 
 	lastWrite map[string]*int64
 
@@ -74,17 +75,19 @@ type Config struct {
 	Writer      ingester.Writer
 	Reader      cassandra.Reader
 	Resolution  time.Duration
+	CleanupRate float64
 	CleanupFunc func()
 }
 
 // NewDownsampler returns a new instance of a Downsampler.
 func NewDownsampler(config *Config) *Downsampler {
 	d := &Downsampler{
-		consumer:   config.Consumer,
-		writer:     config.Writer,
-		reader:     config.Reader,
-		resolution: config.Resolution.Nanoseconds() / int64(time.Millisecond),
-		cleanupF:   config.CleanupFunc,
+		consumer:    config.Consumer,
+		writer:      config.Writer,
+		reader:      config.Reader,
+		resolution:  config.Resolution.Nanoseconds() / int64(time.Millisecond),
+		cleanupRate: config.CleanupRate,
+		cleanupF:    config.CleanupFunc,
 
 		lastWrite: map[string]*int64{},
 

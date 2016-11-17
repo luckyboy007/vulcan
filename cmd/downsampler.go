@@ -106,6 +106,9 @@ func Downsampler() *cobra.Command {
 				TableName: tablename,
 				Keyspace:  keyspace,
 			})
+			if rr, ok := r.(*cassandra.Read); ok {
+				reg.MustRegister(rr)
+			}
 
 			log.WithFields(log.Fields{
 				"cassandra_address":  viper.GetString(flagCassandraAddrs),
@@ -114,10 +117,11 @@ func Downsampler() *cobra.Command {
 			})
 
 			ds := downsampler.NewDownsampler(&downsampler.Config{
-				Consumer:   s,
-				Writer:     w,
-				Reader:     r,
-				Resolution: viper.GetDuration(flagDownsamplerResolution),
+				Consumer:    s,
+				Writer:      w,
+				Reader:      r,
+				Resolution:  viper.GetDuration(flagDownsamplerResolution),
+				CleanupRate: viper.GetFloat64(flagDownsamplerCleanupRate),
 			})
 			reg.MustRegister(ds)
 
@@ -157,6 +161,7 @@ func Downsampler() *cobra.Command {
 	d.Flags().Duration(flagDownsampledTTL, time.Hour*24*30, "downsampled sample ttl")
 	d.Flags().Duration(flagDownsamplerResolution, time.Minute*15, "resolution duration")
 	d.Flags().Int(flagNumWorkers, 30, "number of concurrent downsampler workers")
+	d.Flags().Float64(flagDownsamplerCleanupRate, 4.0, "Rate relative to resolution duration of how often to garbage collect timeseries in memory")
 
 	return d
 }
