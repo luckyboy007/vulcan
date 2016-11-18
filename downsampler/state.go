@@ -90,6 +90,11 @@ func (d *Downsampler) cleanLastWrite(now int64, diff int64) {
 }
 
 func (d *Downsampler) getLastFrDisk(fqmn string) (updatedAtMS int64, err error) {
+	t0 := time.Now()
+	defer func() {
+		d.batchProcessDistribution.WithLabelValues("cassandra_read").Add(time.Since(t0).Seconds())
+	}()
+
 	d.readCount.WithLabelValues("disk").Inc()
 
 	s, err := d.reader.GetLastSample(fqmn)
