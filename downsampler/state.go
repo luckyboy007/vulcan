@@ -110,13 +110,21 @@ func (d *Downsampler) getLastFrDisk(fqmn string) (updatedAtMS int64, err error) 
 func (d *Downsampler) cleanUp() {
 	var (
 		diffd = time.Duration(float64(d.resolution)*d.cleanupRate) * time.Millisecond
-		t     = time.NewTicker(diffd)
+		t     = time.NewTicker(2 * diffd)
 		diffi = diffd.Nanoseconds() / int64(time.Millisecond)
+		first = true
 	)
 
 	for {
 		select {
 		case <-t.C:
+			if first {
+				// after first try reset cleanup duration to original configuration.
+				t.Stop()
+				t = time.NewTicker(diffd)
+				first = false
+			}
+
 			d.cleanLastWrite(timeToMS(time.Now()), diffi)
 
 		case <-d.done:
