@@ -23,7 +23,8 @@ import (
 	"github.com/digitalocean/vulcan/ingester"
 	"github.com/digitalocean/vulcan/model"
 
-	log "github.com/Sirupsen/logrus"
+	log "doge/log"
+
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -234,9 +235,12 @@ func (d *Downsampler) work() error {
 
 		case m := <-d.consumer.Messages():
 			if err := d.processTSBatch(m.TimeSeriesBatch); err != nil {
-				log.WithFields(log.Fields{
+				// log.WithFields(log.Fields{
+				// 	"timeseries_batch": m.TimeSeriesBatch,
+				// }).WithError(err).Error("error occurred while processing batch.")
+				log.KVs(log.F{
 					"timeseries_batch": m.TimeSeriesBatch,
-				}).WithError(err).Error("error occurred while processing batch.")
+				}).Err(err).Error("error occurred while processing batch.")
 
 				return err
 			}
