@@ -20,7 +20,6 @@ import (
 
 	"github.com/digitalocean/vulcan/bus"
 	"github.com/digitalocean/vulcan/cassandra"
-	"github.com/digitalocean/vulcan/ingester"
 	"github.com/digitalocean/vulcan/model"
 
 	log "github.com/Sirupsen/logrus"
@@ -43,7 +42,7 @@ type Downsampler struct {
 	prometheus.Collector
 
 	consumer bus.Source
-	writer   ingester.Writer
+	writer   Writer
 	reader   cassandra.Reader
 
 	// the resolution type int64 matches the type for the timestamp we get
@@ -71,7 +70,7 @@ type Downsampler struct {
 // Config represents the configurable attributes of a Downsampler instance.
 type Config struct {
 	Consumer    bus.Source
-	Writer      ingester.Writer
+	Writer      Writer
 	Reader      cassandra.Reader
 	Resolution  time.Duration
 	CleanupFunc func()
